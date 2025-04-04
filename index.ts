@@ -19,6 +19,7 @@ const content = readFileSync(input).toString("utf8");
 const jsonContent = JSON.parse(content)
 
 const arrays: string[] = [];
+let header: string = "";
 
 for (const key in jsonContent) {
     const content = jsonContent[key]
@@ -34,6 +35,13 @@ for (const key in jsonContent) {
                 }
             }
         }
+    } else if(key == "header") {
+    	if (typeof content == "string") {
+    		header = content;
+    	} else {
+    		console.error(`INVALID TYPE FOR "${key}", expected string, got ${typeof content}`)
+            process.exit(1)
+    	}
     } else {
         console.error(`INVALID KEY "${key}"`)
         process.exit(1)
@@ -44,6 +52,11 @@ let outputText = `
 #include <stddef.h>
 #include <stdlib.h>
 #include <assert.h>
+
+// Header Begin
+${header}
+// Heaer End
+
 enum array_err {
     ARRAY_OK,
     ARRAY_OOM
@@ -65,6 +78,7 @@ for (let i = 0; i < arrays.length; i++) {
 
     outputText +=
         `
+// Begin ${e}
 
 struct ${sliceName} {
     ${e} *items;
@@ -150,12 +164,50 @@ array_err ${arrayName}_append(${arrayName} *arr, ${sliceName} slice) {
 
 #define ${arrayNameUpperCase}_APPEND(arr, ...) ${arrayName}_append((arr), (${sliceName}){ .items = (${e}[]) { __VA_ARGS__ }, .len = sizeof((${e}[]){ __VA_ARGS__ }[0]) })
 
+
+void ${arrayName}_unordered_remove(${arrayName} *arr, size_t at) {
+    assert(0 <= at && at < arr->len);
+    arr->items[at] = arr->items[arr->len - 1];
+    arr->len -= 1;
+}
+
+void ${arrayName}_ordererd_remove(${arrayName} *arr, size_t at) {
+    assert(0 <= at && at < arr->len);
+    for (size_t i = at; i < arr->len - 1; i++) {
+       	arr->items[i] = arr->items[i+1];
+    }
+    arr->len -= 1;
+}
+
+void ${arrayName}_pop(${arrayName} *arr) {
+    assert(arr->len > 0);
+    arr->len -= 1;
+}
+
+void ${arrayName}_pop_elements(${arrayName} *arr, size_t elements) {
+    assert(arr->len > 0);
+    arr->len -= elements;
+}
+
+${e} ${arrayName}_get(${arrayName} *arr, size_t at) {
+    assert(at < arr->len);
+    return arr->items[at];
+}
+
+${e} ${arrayName}_set(${arrayName} *arr, size_t at, ${e} value) {
+    assert(at < arr->len);
+    ${e} old_value = arr->items[at];
+    arr->items[at] = value;
+    return old_value;
+}
+
 void test_${niceName}(void) {
     ${arrayName} arr = {0};
     ${arrayNameUpperCase}_APPEND(&arr, 0, 0);
     ${arrayNameUpperCase}_APPEND(&arr, 0);
 }
 
+// End ${e}
 `
 }
 

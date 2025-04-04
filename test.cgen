@@ -1,6 +1,8 @@
 {
     "arrays": [
         "size_t",
-        "size_t *"
-    ]
+        "size_t *",
+        "uint64_t"
+    ],
+    "header": "#include <stdint.h>"
 }

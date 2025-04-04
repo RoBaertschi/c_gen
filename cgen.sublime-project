@@ -7,8 +7,8 @@
 	],
 	"build_systems": [
 		{
-			"name": "cgen-with-test",
-			"cmd": ["bun", "run", "index.ts", "test.cgen", "test.c"]
+			"name": "cgen-build",
+			"cmd": ["make"]
 		}
 	]
 }
