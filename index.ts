@@ -1,5 +1,3 @@
-// @ts-check
-
 import { readFileSync, writeFileSync } from 'node:fs';
 const actualArgs = process.argv.slice(2)
 const input = actualArgs[0]
@@ -35,13 +33,13 @@ for (const key in jsonContent) {
                 }
             }
         }
-    } else if(key == "header") {
-    	if (typeof content == "string") {
-    		header = content;
-    	} else {
-    		console.error(`INVALID TYPE FOR "${key}", expected string, got ${typeof content}`)
+    } else if (key == "header") {
+        if (typeof content == "string") {
+            header = content;
+        } else {
+            console.error(`INVALID TYPE FOR "${key}", expected string, got ${typeof content}`)
             process.exit(1)
-    	}
+        }
     } else {
         console.error(`INVALID KEY "${key}"`)
         process.exit(1)
@@ -68,9 +66,9 @@ typedef enum array_err array_err;
 for (let i = 0; i < arrays.length; i++) {
     const e = arrays[i]
     if (!e) {
-        throw new Error("FUCK");
+        throw new Error("Invalid JavaScript Array, should not happen.");
     }
-    const niceName = e?.replaceAll("*", "_ptr").replaceAll(" ", "_").replaceAll(/_+/g, "_")
+    const niceName = e.replaceAll("*", "_ptr").replaceAll(" ", "_").replaceAll(/_+/g, "_")
     const arrayName = "array_" + niceName;
     const arrayNameUpperCase = arrayName.toUpperCase();
     const sliceName = "slice_" + niceName;
@@ -95,14 +93,8 @@ struct ${arrayName} {
 
 typedef struct ${arrayName} ${arrayName};
 
-${sliceName} ${arrayName}_slice(${arrayName} *arr, size_t from, size_t to) {
-    assert(0 <= from);
-    assert(to <= arr->len);
-    assert(to < from);
-    return (${sliceName}){
-        .items = arr->items + from,
-        .len = to,
-    };
+void ${arrayName}_delete(${arrayName} arr) {
+    free(arr.items);
 }
 
 array_err ${arrayName}_grow(${arrayName} *arr) {
@@ -198,6 +190,62 @@ ${e} ${arrayName}_set(${arrayName} *arr, size_t at, ${e} value) {
     assert(at < arr->len);
     ${e} old_value = arr->items[at];
     arr->items[at] = value;
+    return old_value;
+}
+
+// IMPORTANT: This slice is not owned, it has the same lifetime as the original array
+${sliceName} ${arrayName}_slice(${arrayName} *arr, size_t from, size_t to) {
+    assert(0 <= from);
+    assert(to <= arr->len);
+    assert(to < from);
+    return (${sliceName}){
+        .items = arr->items + from,
+        .len = to,
+    };
+}
+
+${sliceName} ${sliceName}_slice(${sliceName} *slice, size_t from, size_t to) {
+    assert(0 <= from);
+    assert(to <= arr->len);
+    assert(to < from);
+    return (${sliceName}){
+        .items = arr->items + from,
+        .len = to,
+    };
+}
+
+array_err ${arrayName}_to_owned_slice(${arrayName} *arr, ${sliceName} *dst) {
+    ${e} *new_slice = malloc(sizeof(${e}) * arr->len);
+
+    if (new_slice == NULL) {
+        return ARRAY_OOM;
+    }
+
+    for (size_t i = 0; i < arr->len; i++) {
+        new_slice[i] = arr->items[i];
+    }
+
+    *dst = (${sliceName}){
+        .items = new_slice,
+        .len = arr->len,
+    };
+
+    return ARRAY_OK;
+}
+
+void ${sliceName}_delete_owned(${sliceName} slice) {
+    free(slice.items);
+}
+
+${e} ${sliceName}_get(${sliceName} *slice, size_t at) {
+    assert(at < slice->len);
+    return slice->items[at];
+}
+
+${e} ${sliceName}_set(${sliceName} *slice, size_t at, ${e} value) {
+    assert(at < slice->len);
+    ${e} old_value = slice->items[at];
+    slice->items[at] = value;
     return old_value;
 }
 
