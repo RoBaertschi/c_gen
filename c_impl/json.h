@@ -139,6 +139,24 @@ struct json_value {
 struct json_object_iterator json_object_iterator_create(struct json_object *obj);
 struct json_object_entry json_object_iterator_next(struct json_object_iterator* iterator);
 
+// Create String
+struct json_string json_string_create(char *str, size_t len);
+struct json_value json_string_createv(char *str, size_t len);
+struct json_string json_string_create_cstr(char *str);
+struct json_value json_string_create_cstrv(char *str);
+
+// Create object
+
+// Allocates a new object, use the other json_object_* functions to add and remove attributes.
+struct json_object json_object_create(void);
+struct json_value json_object_to_value(struct json_object obj);
+
+// Create array
+
+// Allocates a new array, use the other json_array_* functions to add and remove attributes.
+struct json_array json_array_create(void);
+struct json_value json_array_to_value(struct json_array arr);
+
 // Free
 void json_value_delete(struct json_value value);
 void json_object_delete(struct json_object object);
