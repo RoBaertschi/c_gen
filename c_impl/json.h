@@ -121,6 +121,7 @@ struct json_object_entry {
     // The key is not a pointer, because it already is just a pointer with a length
     struct json_string key;
     struct json_value* value;
+    bool found;
 };
 
 struct json_value {
@@ -136,6 +137,7 @@ struct json_value {
 };
 
 struct json_object_iterator json_object_iterator_create(struct json_object *obj);
+struct json_object_entry json_object_iterator_next(struct json_object_iterator* iterator);
 
 // Free
 void json_value_delete(struct json_value value);
@@ -145,11 +147,54 @@ void json_string_delete(struct json_string string);
 
 #ifdef JSON_IMPLEMENTATION
 
+// Internal Hash Map for strings to json_value
+struct json__hash_map {
+    struct json__hash_map_entry *bucket;
+    size_t bucket_size;
+    size_t bucket_cap;
+
+    // This is a linked list
+    struct json__hash_map_entry *collisions;
+    size_t collisions_size;
+    size_t collisions_cap;
+};
+
+struct json__hash_map_entry {
+    struct json_string key;
+    struct json_value value;
+    struct json__hash_map_entry* next;
+};
+
 struct json_object_iterator json_object_iterator_create(struct json_object *obj) {
     return (struct json_object_iterator){
         ._bucket_index = 0,
         ._current_entry = NULL,
         ._hm = obj->_hm,
+    };
+}
+
+struct json_object_entry json_object_iterator_next(struct json_object_iterator* iterator) {
+    if (iterator->_current_entry && iterator->_current_entry->next) {
+        iterator->_current_entry = iterator->_current_entry->next;
+        return (struct json_object_entry){
+            .value = &iterator->_current_entry->value,
+            .key = iterator->_current_entry->key,
+            .found = true,
+        };
+    }
+
+    for (size_t i = iterator->_bucket_index; i < iterator->_hm->bucket_cap; i++) {
+        iterator->_current_entry = &iterator->_hm->bucket[iterator->_bucket_index];
+        if (iterator->_current_entry->key.len != 0) {
+            return (struct json_object_entry){
+                .value = &iterator->_current_entry->value,
+                .key = iterator->_current_entry->key,
+                .found = true,
+            };
+        }
+    }
+    return (struct json_object_entry){
+        .found = false,
     };
 }
 
@@ -200,24 +245,6 @@ static size_t json__hash(unsigned char const * str, size_t len) {
 
     return hash;
 }
-
-// Internal Hash Map for strings to json_value
-struct json__hash_map {
-    struct json__hash_map_entry *bucket;
-    size_t bucket_size;
-    size_t bucket_cap;
-
-    // This is a linked list
-    struct json__hash_map_entry *collisions;
-    size_t collisions_size;
-    size_t collisions_cap;
-};
-
-struct json__hash_map_entry {
-    struct json_string key;
-    struct json_value value;
-    struct json__hash_map_entry* next;
-};
 
 // Returns NULL if an allocation failed
 static struct json__hash_map* json__create_hm(void) {
