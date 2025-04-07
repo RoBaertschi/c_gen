@@ -6,4 +6,5 @@ ALL: main
 test.c: test.cgen index.ts
 	bun run index.ts test.cgen test.c
 
-main: main.c | test.c
+main: main.c test.c
+	cc $(CFLAGS) main.c -o main

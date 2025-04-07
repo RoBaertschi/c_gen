@@ -204,12 +204,13 @@ ${sliceName} ${arrayName}_slice(${arrayName} *arr, size_t from, size_t to) {
     };
 }
 
+// IMPORTANT: This slice is not owned, it has the same lifetime as the original slice
 ${sliceName} ${sliceName}_slice(${sliceName} *slice, size_t from, size_t to) {
     assert(0 <= from);
-    assert(to <= arr->len);
+    assert(to <= slice->len);
     assert(to < from);
     return (${sliceName}){
-        .items = arr->items + from,
+        .items = slice->items + from,
         .len = to,
     };
 }
@@ -247,12 +248,6 @@ ${e} ${sliceName}_set(${sliceName} *slice, size_t at, ${e} value) {
     ${e} old_value = slice->items[at];
     slice->items[at] = value;
     return old_value;
-}
-
-void test_${niceName}(void) {
-    ${arrayName} arr = {0};
-    ${arrayNameUpperCase}_APPEND(&arr, 0, 0);
-    ${arrayNameUpperCase}_APPEND(&arr, 0);
 }
 
 // End ${e}
