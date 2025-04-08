@@ -1,2 +1,6 @@
 -xc-header
 -DJSON_IMPLEMENTATION
+-std=c99
+-pedantic
+-Wall
+-Werror
