@@ -87,6 +87,8 @@
 #include <stdbool.h>
 
 enum json_type {
+    // Invalid json value, a zero constructed value is invalid
+    JSON_INVALID,
     JSON_OBJECT,
     JSON_ARRAY,
     JSON_NUMBER,
@@ -114,13 +116,14 @@ struct json_object {
 };
 
 // NOTE: The content of json_object_iterator is internal, you should not use it.
-//
+// WARN: Do not modify the object while iterating, some weird stuff can happen if you do.
 struct json_object_iterator {
     size_t _bucket_index;
     struct json__hash_map_entry *_current_entry;
     struct json__hash_map *_hm;
 };
 
+// WARN: Do not modify the object while iterating, some weird stuff can happen if you do.
 struct json_object_entry {
     // The key is not a pointer, because it already is just a pointer with a length
     struct json_string key;
@@ -158,12 +161,21 @@ struct json_value json_object_copyv(struct json_object obj, bool *ok);
 
 // Modifying the object
 
-// Sets or inserts a key on demand
+// Sets or inserts on demand, a value for a key
 // The key will be copied, the value will be taken as is, the value will be owned by the object afterwards.
 // Returns false if there was an allocation error.
 bool json_object_set(struct json_object *obj, struct json_string key, struct json_value value);
 
+// Gets the value at the key.
+struct json_value json_object_get(struct json_object *obj, struct json_string key, bool *found);
+
+// Deletes key from the object
+// Returns true if the key was found, false if not
+bool json_object_del(struct json_object *obj, struct json_string key);
+
+// WARN: Do not modify the object while iterating, some weird stuff can happen if you do.
 struct json_object_iterator json_object_iterator_create(struct json_object *obj);
+// WARN: Do not modify the object while iterating, some weird stuff can happen if you do.
 struct json_object_entry json_object_iterator_next(struct json_object_iterator* iterator);
 
 //------------------------------
@@ -192,6 +204,8 @@ struct json_value json_string_copyv(struct json_string str, bool *ok);
 // Do not use the str passed into this function, the returnec value has taken ownership of str
 struct json_value json_string_to_value(struct json_string str);
 
+#define JSON_STR(cstr) (struct json_string) { .data = (unsigned char *) cstr, .len = sizeof(cstr) / sizeof(cstr[0]) }
+
 //------------------------------
 // ARRAY PUBLIC API
 //------------------------------
@@ -210,7 +224,9 @@ struct json_array json_array_concat(struct json_array left, struct json_array ri
 struct json_value json_array_concatv(struct json_array left, struct json_array right, bool *ok);
 
 // This macro allows for easy creation of a array's with values, because currently json_array's are immutable (100% not because I am lazy to implement the proper functions or something /s).
-#define JSON_CREATE_ARRAY(...) json_array_copy((struct json_array) { .items = (struct json_value[]){ __VA_ARGS__ }, .len = sizeof((struct json_value[]){ __VA_ARGS__ }) })
+#define JSON_CREATE_ARRAY(ok, ...) json_array_copy((struct json_array) { .items = (struct json_value[]){ __VA_ARGS__ }, .len = sizeof((struct json_value[]){ __VA_ARGS__ }) / sizeof(struct json_value) }, (ok))
+
+struct json_value json_null(void);
 
 struct json_value json_array_to_value(struct json_array arr);
 
@@ -254,6 +270,7 @@ static struct json__hash_map *json__hash_map_copy(struct json__hash_map *hm);
 
 // hash map entry
 static struct json__hash_map_entry json__hash_map_entry_copy(struct json__hash_map_entry entry, struct json__hash_map_entry *new_collisions, struct json__hash_map_entry *old_collisions, bool *ok);
+static bool json__hash_map_entry_valid(struct json__hash_map_entry *entry);
 
 // string
 static bool json__string_eq(struct json_string first, struct json_string second);
@@ -302,7 +319,7 @@ struct json_object_entry json_object_iterator_next(struct json_object_iterator* 
 
     for (size_t i = iterator->_bucket_index; i < iterator->_hm->bucket_cap; i++) {
         iterator->_current_entry = &iterator->_hm->bucket[iterator->_bucket_index];
-        if (iterator->_current_entry->key.len != 0) {
+        if (json__hash_map_entry_valid(iterator->_current_entry)) {
             return (struct json_object_entry) {
                 .value = &iterator->_current_entry->value,
                 .key = iterator->_current_entry->key,
@@ -443,6 +460,21 @@ bool json_object_set(struct json_object *obj, struct json_string key, struct jso
     return json__hash_map_insert(obj->_hm, key, value);
 }
 
+// Gets the value at the key.
+struct json_value json_object_get(struct json_object *obj, struct json_string key, bool *found) {
+    struct json__hash_map_entry *entry = json__hash_map_get(obj->_hm, key);
+    if (entry == NULL) {
+        *found = false;
+        return (struct json_value) {0};
+    }
+    *found = true;
+    return entry->value;
+}
+
+bool json_object_del(struct json_object *obj, struct json_string key) {
+    return json__hash_map_delete(obj->_hm, key);
+}
+
 // Create array
 
 // Allocates a new array, use the other json_array_* functions to add and remove elements.
@@ -550,6 +582,7 @@ struct json_value json_value_copy(struct json_value value, bool *ok) {
         case JSON_NUMBER:
         case JSON_BOOLEAN:
         case JSON_NULL:
+        case JSON_INVALID:
             return value;
     }
 }
@@ -566,10 +599,9 @@ void json_value_delete(struct json_value value) {
             json_string_delete(value.data.string);
             break;
         case JSON_NUMBER:
-            break;
         case JSON_BOOLEAN:
-            break;
         case JSON_NULL:
+        case JSON_INVALID:
             break;
     }
 }
@@ -632,14 +664,14 @@ static struct json__hash_map* json__hm_create(void) {
 // Deletes all the values, keys and the internal memory of the hash map
 static void json__hm_delete(struct json__hash_map* map) {
     for (size_t i = 0; i < map->collisions_size; i++) {
-        if (map->collisions[i].key.len > 0) {
+        if (json__hash_map_entry_valid(&map->collisions[i])) {
             json_string_delete(map->collisions[i].key);
             json_value_delete(map->collisions[i].value);
         }
     }
 
     for (size_t i = 0; i < map->bucket_cap; i++) {
-        if (map->bucket[i].key.len > 0) {
+        if (json__hash_map_entry_valid(&map->bucket[i])) {
             json_string_delete(map->bucket[i].key);
             json_value_delete(map->bucket[i].value);
         }
@@ -669,8 +701,8 @@ static struct json__hash_map_entry* json__hash_map_get(struct json__hash_map *hm
     size_t hash = json__hash(key.data, key.len);
     size_t index = hash % hm->bucket_cap;
     struct json__hash_map_entry *entry = &hm->bucket[index];
-    // If the key has a lenght of 0, it is an empty slot and we return NULL
-    if (entry->key.len == 0) {
+
+    if (!json__hash_map_entry_valid(entry)) {
         return NULL;
     }
 
@@ -704,7 +736,7 @@ static bool json__hash_map_grow(struct json__hash_map *hm) {
 
     for (size_t i = 0; i < hm->bucket_cap; i++) {
         struct json__hash_map_entry *entry = &hm->bucket[i];
-        if (entry->key.len != 0) {
+        if (json__hash_map_entry_valid(entry)) {
             continue;
         }
 
@@ -737,7 +769,6 @@ static double json__hash_map_load_factor(struct json__hash_map *hm) {
 // The hash map stays valid even if the insert fails
 // The key will be copied. You won't have to keep it alive.
 static bool json__hash_map_insert(struct json__hash_map *hm, struct json_string key, struct json_value value) {
-    JSON_ASSERT(key.data != NULL && key.len > 0, "the key provided json__hash_map_insert has to be longer than 0 characters");
     bool ok = true;
     struct json__hash_map_entry new_entry = {
         .key = json_string_copy(key, &ok),
@@ -751,7 +782,7 @@ static bool json__hash_map_insert(struct json__hash_map *hm, struct json_string 
     size_t hash = json__hash(new_entry.key.data, new_entry.key.len);
     size_t index = hash % hm->bucket_cap;
     struct json__hash_map_entry *entry = &hm->bucket[index];
-    if (0 < entry->key.len) {
+    if (json__hash_map_entry_valid(entry)) {
         while (entry->next != NULL) {
             entry = entry->next;
         }
@@ -877,7 +908,7 @@ static struct json__hash_map *json__hash_map_copy(struct json__hash_map *hm) {
 }
 
 static struct json__hash_map_entry json__hash_map_entry_copy(struct json__hash_map_entry entry, struct json__hash_map_entry *new_collisions, struct json__hash_map_entry *old_collisions, bool *ok) {
-    if (entry.key.len <= 0) {
+    if (!json__hash_map_entry_valid(&entry)) {
         return (struct json__hash_map_entry) {0};
     }
 
@@ -900,6 +931,10 @@ static struct json__hash_map_entry json__hash_map_entry_copy(struct json__hash_m
         json_string_delete(new_entry.key);
     }
     return new_entry;
+}
+
+static bool json__hash_map_entry_valid(struct json__hash_map_entry *entry) {
+    return entry->value.type != JSON_INVALID;
 }
 
 #endif // JSON_IMPLEMENTATION
