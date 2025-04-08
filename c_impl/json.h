@@ -140,7 +140,10 @@ struct json_value {
 struct json_object_iterator json_object_iterator_create(struct json_object *obj);
 struct json_object_entry json_object_iterator_next(struct json_object_iterator* iterator);
 
-// Create String
+//------------------------------
+// STRING PUBLIC API
+//------------------------------
+
 // NOTE: Copies the string
 // The string has to be longer than 0
 // Returns an empty string with NULL as data when the allocation fails
@@ -156,14 +159,16 @@ struct json_string json_string_create_cstr(unsigned char *str);
 // NOTE: Copies the string
 // The string has to be longer than 0
 // Returns an empty string with NULL as data when the allocation fails
-struct json_value json_string_create_cstrv(unsigned char *str);
+struct json_value json_string_create_cstrv(char *str);
 
 // NOTE: Copies the string
 // The string has to be longer than 0
 // Returns an empty string with NULL as data when the allocation fails
 struct json_string json_string_copy(struct json_string str);
 
-// Create object
+//------------------------------
+// OBJECT PUBLIC API
+//------------------------------
 
 // Allocates a new object, use the other json_object_* functions to add and remove attributes.
 // If any of the allocations fails, ok will be set to false. On success, ok will be set to true.
@@ -171,11 +176,33 @@ struct json_string json_string_copy(struct json_string str);
 struct json_object json_object_create(bool *ok);
 struct json_value json_object_to_value(struct json_object obj);
 
-// Create array
+//------------------------------
+// ARRAY PUBLIC API
+//------------------------------
 
-// Allocates a new array, use the other json_array_* functions to add and remove elements.
+// Allocates a new, empty array.
 struct json_array json_array_create(void);
+
+// Allocates a new array and copies the elements over, mostly for a utility macro
+// If the arr.len > 0 and the return.items == NULL. Then the allocation failed. When a allocation fails, the returned array will have a length of 0.
+struct json_array json_array_copy(struct json_array arr);
+
+// Allocates a new array and copies both left and right into it
+// If the left.len + right.len > 0 and the return.items == NULL. Then the allocation failed. When a allocation fails, the returned array will have a length of 0.
+struct json_array json_array_concat(struct json_array left, struct json_array right);
+
+// This macro allows for easy creation of a array's with values, because currently json_array's are immutable (100% not because I am lazy to implement the proper functions or something /s).
+#define JSON_CREATE_ARRAY(...) json_array_copy((struct json_array) { .items = (struct json_value[]){ __VA_ARGS__ }, .len = sizeof((struct json_value[]){ __VA_ARGS__ }) })
+
 struct json_value json_array_to_value(struct json_array arr);
+
+//------------------------------
+// OTHER CREATE PUBLIC API
+//------------------------------
+
+struct json_value json_boolean(bool value);
+struct json_value json_number(double value);
+struct json_value json_null(void);
 
 // Free
 void json_value_delete(struct json_value value);
@@ -186,11 +213,13 @@ void json_string_delete(struct json_string string);
 #ifdef JSON_IMPLEMENTATION
 
 
-// Internal API
+//------------------------------
+// INTERNAL API
+//------------------------------
 
 // hash map
 static struct json__hash_map* json__hm_create(void);
-static void json__delete_hm(struct json__hash_map* map);
+static void json__hm_delete(struct json__hash_map* map);
 static bool json__hash_map_insert(struct json__hash_map *hm, struct json_string key, struct json_value value);
 static struct json__hash_map_entry* json__hash_map_get(struct json__hash_map *hm, struct json_string key);
 static bool json__hash_map_grow(struct json__hash_map *hm);
@@ -219,6 +248,12 @@ struct json__hash_map_entry {
     struct json_value value;
     struct json__hash_map_entry* next;
 };
+
+
+
+//------------------------------
+// PUBLIC API IMPL
+//------------------------------
 
 struct json_object_iterator json_object_iterator_create(struct json_object *obj) {
     return (struct json_object_iterator) {
@@ -295,10 +330,13 @@ struct json_string json_string_create_cstr(unsigned char *str) {
 // NOTE: Copies the string
 // The string has to be longer than 0
 // Returns an empty string with NULL as data when the allocation fails
-struct json_value json_string_create_cstrv(unsigned char *str) {
-    return json_string_createv(str, strlen((char*) str));
+struct json_value json_string_create_cstrv(char *str) {
+    return json_string_createv((unsigned char*)str, strlen(str));
 }
 
+// NOTE: Copies the string
+// The string has to be longer than 0
+// Returns an empty string with NULL as data when the allocation fails
 struct json_string json_string_copy(struct json_string str) {
     return json_string_create(str.data, str.len);
 }
@@ -336,12 +374,61 @@ struct json_array json_array_create(void) {
         .items = NULL,
     };
 }
+
+// Allocates a new array and copies both left and right into it
+// If the left.len + right.len > 0 and the return.items == NULL. Then the allocation failed. When a allocation fails, the returned array will have a length of 0.
+struct json_array json_array_concat(struct json_array left, struct json_array right) {
+
+}
+
+// Allocates a new array and copies the elements over, mostly for a utility macro
+// If the arr.len > 0 and the return.items == NULL. Then the allocation failed. When a allocation fails, the returned array will have a length of 0.
+struct json_array json_array_copy(struct json_array arr) {
+    struct json_value *items = JSON_MALLOC(arr.len * sizeof(*items));
+
+    if (items == NULL) {
+        // Return a empty array
+        return json_array_create();
+    }
+
+    for (size_t i = 0; i < arr.len; i++) {
+        items[i] = arr.items[i];
+    }
+
+    return (struct json_array) {
+        .len = arr.len,
+        .items = items,
+    };
+}
+
 struct json_value json_array_to_value(struct json_array arr) {
     return (struct json_value) {
         .type = JSON_ARRAY,
         .data.array = arr,
     };
 }
+
+
+struct json_value json_boolean(bool value) {
+    return (struct json_value) {
+        .type = JSON_BOOLEAN,
+        .data.boolean = value,
+    };
+}
+
+struct json_value json_number(double value) {
+    return (struct json_value) {
+        .type = JSON_NUMBER,
+        .data.number = value,
+    };
+}
+
+struct json_value json_null(void) {
+    return (struct json_value) {
+        .type = JSON_NULL,
+    };
+}
+
 
 void json_value_delete(struct json_value value) {
     switch (value.type) {
@@ -378,7 +465,9 @@ void json_string_delete(struct json_string string) {
     }
 }
 
+//------------------------------
 // INTERNAL HASH MAP FACILITIES
+//------------------------------
 
 // Generate a hash value
 static size_t json__hash(unsigned char const * str, size_t len) {
@@ -416,7 +505,22 @@ static struct json__hash_map* json__hm_create(void) {
     return ptr;
 }
 
-static void json__delete_hm(struct json__hash_map* map) {
+// Deletes all the values, keys and the internal memory of the hash map
+static void json__hm_delete(struct json__hash_map* map) {
+    for (size_t i = 0; i < map->collisions_size; i++) {
+        if (map->collisions[i].key.len > 0) {
+            json_string_delete(map->collisions[i].key);
+            json_value_delete(map->collisions[i].value);
+        }
+    }
+
+    for (size_t i = 0; i < map->bucket_cap; i++) {
+        if (map->bucket[i].key.len > 0) {
+            json_string_delete(map->bucket[i].key);
+            json_value_delete(map->bucket[i].value);
+        }
+    }
+
     JSON_FREE(map->collisions);
     JSON_FREE(map->bucket);
     JSON_FREE(map);
@@ -495,7 +599,7 @@ static bool json__hash_map_grow(struct json__hash_map *hm) {
         }
     }
 
-    json__delete_hm(hm);
+    json__hm_delete(hm);
     *hm = new_hm;
 
     return true;
@@ -507,17 +611,18 @@ static double json__hash_map_load_factor(struct json__hash_map *hm) {
 
 // NOTE: Returns false on allocation failiure
 // The hash map stays valid even if the insert fails
+// The key will be copied. You won't have to keep it alive.
 static bool json__hash_map_insert(struct json__hash_map *hm, struct json_string key, struct json_value value) {
     JSON_ASSERT(key.data != NULL && key.len > 0, "the key provided json__hash_map_insert has to be longer than 0 characters");
     struct json__hash_map_entry new_entry = {
-        .key = key,
+        .key = json_string_copy(key),
         .value = value,
     };
 
-    size_t hash = json__hash(key.data, key.len);
+    size_t hash = json__hash(new_entry.key.data, new_entry.key.len);
     size_t index = hash % hm->bucket_cap;
     struct json__hash_map_entry *entry = &hm->bucket[index];
-    if (entry->key.len > 0) {
+    if (0 < entry->key.len) {
         while (entry->next != NULL) {
             entry = entry->next;
         }
@@ -548,7 +653,7 @@ static bool json__hash_map_insert(struct json__hash_map *hm, struct json_string 
 }
 
 static void json__hash_map_entry_delete(struct json__hash_map_entry* entry) {
-    // TODO: Delete the key
+    json_string_delete(entry->key);
     json_value_delete(entry->value);
 }
 
