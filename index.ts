@@ -18,14 +18,21 @@ const jsonContent = JSON.parse(content)
 
 const arrays: string[] = [];
 let header: string = "";
+let configMacros = {
+    malloc: "malloc",
+    realloc: "realloc",
+    free: "free",
+    assert: "assert"
+};
+let prefix = "";
 
 for (const key in jsonContent) {
     const content = jsonContent[key]
-    if (key == "arrays") {
+    if (key === "arrays") {
         if (Array.isArray(content)) {
             for (let i = 0; i < content.length; i++) {
                 const arrElement = content[i]
-                if (typeof arrElement == "string") {
+                if (typeof arrElement === "string") {
                     arrays.push(arrElement)
                 } else {
                     console.error(`INVALID ELEMENT IN "${key}", expected string, got ${typeof arrElement}`)
@@ -33,9 +40,44 @@ for (const key in jsonContent) {
                 }
             }
         }
-    } else if (key == "header") {
-        if (typeof content == "string") {
+    } else if (key === "header") {
+        if (typeof content === "string") {
             header = content;
+        } else {
+            console.error(`INVALID TYPE FOR "${key}", expected string, got ${typeof content}`)
+            process.exit(1)
+        }
+    } else if (key === "malloc") {
+        if (typeof content === "string") {
+            configMacros.malloc = content;
+        } else {
+            console.error(`INVALID TYPE FOR "${key}", expected string, got ${typeof content}`)
+            process.exit(1)
+        }
+    } else if (key === "realloc") {
+        if (typeof content === "string") {
+            configMacros.realloc = content;
+        } else {
+            console.error(`INVALID TYPE FOR "${key}", expected string, got ${typeof content}`)
+            process.exit(1)
+        }
+    } else if (key === "free") {
+        if (typeof content === "string") {
+            configMacros.free = content;
+        } else {
+            console.error(`INVALID TYPE FOR "${key}", expected string, got ${typeof content}`)
+            process.exit(1)
+        }
+    } else if (key === "prefix") {
+        if (typeof content === "string") {
+            prefix = content;
+        } else {
+            console.error(`INVALID TYPE FOR "${key}", expected string, got ${typeof content}`)
+            process.exit(1)
+        }
+    } else if (key === "assert") {
+        if (typeof content === "string") {
+            configMacros.assert = content;
         } else {
             console.error(`INVALID TYPE FOR "${key}", expected string, got ${typeof content}`)
             process.exit(1)
@@ -69,9 +111,9 @@ for (let i = 0; i < arrays.length; i++) {
         throw new Error("Invalid JavaScript Array, should not happen.");
     }
     const niceName = e.replaceAll("*", "_ptr").replaceAll(" ", "_").replaceAll(/_+/g, "_")
-    const arrayName = "array_" + niceName;
+    const arrayName = prefix + "array_" + niceName;
     const arrayNameUpperCase = arrayName.toUpperCase();
-    const sliceName = "slice_" + niceName;
+    const sliceName = prefix + "slice_" + niceName;
     const initialSize = 4;
 
     outputText +=
@@ -94,19 +136,19 @@ struct ${arrayName} {
 typedef struct ${arrayName} ${arrayName};
 
 void ${arrayName}_delete(${arrayName} arr) {
-    free(arr.items);
+    ${configMacros.free}(arr.items);
 }
 
 array_err ${arrayName}_grow(${arrayName} *arr) {
     if (arr->items == NULL) {
-        arr->items = malloc(sizeof(arr->items[0]) * ${initialSize});
+        arr->items = ${configMacros.malloc}(sizeof(arr->items[0]) * ${initialSize});
         if (arr->items == NULL) {
             return ARRAY_OOM;
         }
         arr->cap = ${initialSize};
     } else {
         size_t new_cap = sizeof(arr->items[0]) * arr->cap * 2;
-        ${e}* items = realloc(arr->items, new_cap);
+        ${e}* items = ${configMacros.realloc}(arr->items, new_cap);
         if (arr->items == NULL) {
             return ARRAY_OOM;
         }
@@ -216,7 +258,7 @@ ${sliceName} ${sliceName}_slice(${sliceName} *slice, size_t from, size_t to) {
 }
 
 array_err ${arrayName}_to_owned_slice(${arrayName} *arr, ${sliceName} *dst) {
-    ${e} *new_slice = malloc(sizeof(${e}) * arr->len);
+    ${e} *new_slice = ${configMacros.malloc}(sizeof(${e}) * arr->len);
 
     if (new_slice == NULL) {
         return ARRAY_OOM;
@@ -235,7 +277,7 @@ array_err ${arrayName}_to_owned_slice(${arrayName} *arr, ${sliceName} *dst) {
 }
 
 void ${sliceName}_delete_owned(${sliceName} slice) {
-    free(slice.items);
+    ${configMacros.free}(slice.items);
 }
 
 ${e} ${sliceName}_get(${sliceName} *slice, size_t at) {
